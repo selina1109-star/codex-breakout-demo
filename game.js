@@ -14,30 +14,13 @@ const WIDTH = canvas.width;
 const HEIGHT = canvas.height;
 
 const LEVELS = [
-  [
-    '011111111110',
-    '011111111110',
-    '001111111100',
-    '000111111000'
-  ],
-  [
-    '111001111001',
-    '111001111001',
-    '001111001111',
-    '001111001111',
-    '000111111000'
-  ],
-  [
-    '111111111111',
-    '101010101011',
-    '111111111111',
-    '110011001111',
-    '111111111111'
-  ]
+  ['011111111110', '011111111110', '001111111100', '000111111000'],
+  ['111001111001', '111001111001', '001111001111', '001111001111', '000111111000'],
+  ['111111111111', '101010101011', '111111111111', '110011001111', '111111111111']
 ];
 
 const state = {
-  status: 'start', // start | running | paused | levelClear | gameOver | won
+  status: 'start',
   score: 0,
   lives: 3,
   levelIndex: 0,
@@ -45,6 +28,7 @@ const state = {
   leftPressed: false,
   paddleBoostTimer: 0,
   balls: [],
+  frame: 0,
   paddle: {
     width: 130,
     baseWidth: 130,
@@ -57,14 +41,7 @@ const state = {
 };
 
 function createBall(x = WIDTH / 2, y = HEIGHT - 80, speedX = 4, speedY = -5) {
-  return {
-    x,
-    y,
-    radius: 9,
-    dx: speedX,
-    dy: speedY,
-    color: '#e2e8f0'
-  };
+  return { x, y, radius: 9, dx: speedX, dy: speedY, color: '#e2e8f0' };
 }
 
 function buildLevel(levelIndex) {
@@ -163,24 +140,13 @@ function resumeGame() {
 }
 
 function movePaddle() {
-  if (state.rightPressed) {
-    state.paddle.x += state.paddle.speed;
-  }
-  if (state.leftPressed) {
-    state.paddle.x -= state.paddle.speed;
-  }
+  if (state.rightPressed) state.paddle.x += state.paddle.speed;
+  if (state.leftPressed) state.paddle.x -= state.paddle.speed;
   state.paddle.x = Math.max(0, Math.min(WIDTH - state.paddle.width, state.paddle.x));
 }
 
 function spawnPowerUp(x, y) {
-  state.powerUps.push({
-    x,
-    y,
-    width: 20,
-    height: 20,
-    dy: 2.2,
-    type: 'paddleBoost'
-  });
+  state.powerUps.push({ x, y, width: 20, height: 20, dy: 2.2, type: 'paddleBoost' });
 }
 
 function updatePowerUps() {
@@ -215,12 +181,8 @@ function handleBall(ball) {
   ball.x += ball.dx;
   ball.y += ball.dy;
 
-  if (ball.x + ball.radius > WIDTH || ball.x - ball.radius < 0) {
-    ball.dx *= -1;
-  }
-  if (ball.y - ball.radius < 0) {
-    ball.dy *= -1;
-  }
+  if (ball.x + ball.radius > WIDTH || ball.x - ball.radius < 0) ball.dx *= -1;
+  if (ball.y - ball.radius < 0) ball.dy *= -1;
 
   const paddleTop = HEIGHT - state.paddle.height - 12;
   if (
@@ -246,9 +208,7 @@ function handleBall(ball) {
       brick.alive = false;
       ball.dy *= -1;
       state.score += 100;
-      if (Math.random() < 0.16) {
-        spawnPowerUp(brick.x + brick.width / 2 - 10, brick.y + brick.height / 2 - 10);
-      }
+      if (Math.random() < 0.16) spawnPowerUp(brick.x + brick.width / 2 - 10, brick.y + brick.height / 2 - 10);
       break;
     }
   }
@@ -256,7 +216,6 @@ function handleBall(ball) {
 
 function updateBalls() {
   state.balls.forEach(handleBall);
-
   state.balls = state.balls.filter((ball) => ball.y - ball.radius <= HEIGHT + 20);
 
   if (state.balls.length === 0) {
@@ -283,37 +242,75 @@ function checkLevelClear() {
   }
 }
 
+function drawArenaGlowGrid() {
+  ctx.save();
+  const gridGap = 36;
+  ctx.strokeStyle = '#22d3ee1a';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= WIDTH; x += gridGap) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, HEIGHT);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= HEIGHT; y += gridGap) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(WIDTH, y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function drawPaddle() {
   const y = HEIGHT - state.paddle.height - 12;
-  ctx.fillStyle = state.paddleBoostTimer > 0 ? '#34d399' : '#38bdf8';
+  ctx.save();
+  const glow = state.paddleBoostTimer > 0 ? '#34d399' : '#38bdf8';
+  ctx.shadowColor = glow;
+  ctx.shadowBlur = 16;
+  ctx.fillStyle = glow;
   ctx.fillRect(state.paddle.x, y, state.paddle.width, state.paddle.height);
+  ctx.restore();
 }
 
 function drawBalls() {
   state.balls.forEach((ball) => {
+    ctx.save();
     ctx.beginPath();
     ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+    ctx.shadowColor = '#67e8f9';
+    ctx.shadowBlur = 20;
     ctx.fillStyle = ball.color;
     ctx.fill();
     ctx.closePath();
+    ctx.restore();
   });
 }
 
 function drawBricks() {
+  const pulse = 10 + Math.sin(state.frame * 0.06) * 5;
   state.bricks.forEach((brick) => {
     if (!brick.alive) return;
+    ctx.save();
+    ctx.shadowColor = brick.color;
+    ctx.shadowBlur = pulse;
     ctx.fillStyle = brick.color;
     ctx.fillRect(brick.x, brick.y, brick.width, brick.height);
+    ctx.restore();
   });
 }
 
 function drawPowerUps() {
   state.powerUps.forEach((p) => {
+    ctx.save();
+    ctx.shadowColor = '#fde047';
+    ctx.shadowBlur = 16;
     ctx.fillStyle = '#fde047';
     ctx.fillRect(p.x, p.y, p.width, p.height);
-    ctx.fillStyle = '#1f2937';
+    ctx.fillStyle = '#111827';
     ctx.font = 'bold 13px sans-serif';
     ctx.fillText('+', p.x + 6, p.y + 15);
+    ctx.restore();
   });
 }
 
@@ -326,7 +323,7 @@ function drawBackgroundHints() {
 
 function update() {
   if (state.status !== 'running') return;
-
+  state.frame += 1;
   movePaddle();
   updateBalls();
   updatePowerUps();
@@ -336,6 +333,7 @@ function update() {
 
 function draw() {
   ctx.clearRect(0, 0, WIDTH, HEIGHT);
+  drawArenaGlowGrid();
   drawBricks();
   drawPaddle();
   drawBalls();
@@ -355,16 +353,11 @@ window.addEventListener('keydown', (e) => {
 
   if (e.code === 'Space') {
     e.preventDefault();
-    if (state.status === 'running') {
-      pauseGame();
-    } else {
-      resumeGame();
-    }
+    if (state.status === 'running') pauseGame();
+    else resumeGame();
   }
 
-  if (e.key.toLowerCase() === 'r') {
-    startNewGame();
-  }
+  if (e.key.toLowerCase() === 'r') startNewGame();
 });
 
 window.addEventListener('keyup', (e) => {
@@ -381,11 +374,8 @@ window.addEventListener('mousemove', (e) => {
 });
 
 overlayBtn.addEventListener('click', () => {
-  if (state.status === 'running') {
-    pauseGame();
-  } else {
-    resumeGame();
-  }
+  if (state.status === 'running') pauseGame();
+  else resumeGame();
 });
 
 setOverlay(

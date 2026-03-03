@@ -3,386 +3,422 @@ const ctx = canvas.getContext('2d');
 
 const scoreEl = document.getElementById('score');
 const livesEl = document.getElementById('lives');
-const levelEl = document.getElementById('level');
 
-const overlay = document.getElementById('overlay');
-const overlayTitle = document.getElementById('overlayTitle');
-const overlayMessage = document.getElementById('overlayMessage');
-const overlayBtn = document.getElementById('overlayBtn');
-
-const WIDTH = canvas.width;
-const HEIGHT = canvas.height;
-
-const LEVELS = [
-  ['011111111110', '011111111110', '001111111100', '000111111000'],
-  ['111001111001', '111001111001', '001111001111', '001111001111', '000111111000'],
-  ['111111111111', '101010101011', '111111111111', '110011001111', '111111111111']
-];
-
-const state = {
-  status: 'start',
+// Spielzustand und Konstanten in einem Objekt halten = leichter zu verstehen.
+const game = {
+  width: 800,
+  height: 600,
   score: 0,
   lives: 3,
-  levelIndex: 0,
-  rightPressed: false,
-  leftPressed: false,
-  paddleBoostTimer: 0,
-  balls: [],
-  frame: 0,
-  paddle: {
-    width: 130,
-    baseWidth: 130,
-    height: 16,
-    x: WIDTH / 2 - 65,
-    speed: 8
+  isGameOver: false,
+  keys: {
+    left: false,
+    right: false,
+    thrust: false,
+    shoot: false,
   },
-  bricks: [],
-  powerUps: []
+  ship: null,
+  asteroids: [],
+  lasers: [],
+  stars: [],
+  lastShotAt: 0,
+  invulnerableUntil: 0,
 };
 
-function createBall(x = WIDTH / 2, y = HEIGHT - 80, speedX = 4, speedY = -5) {
-  return { x, y, radius: 9, dx: speedX, dy: speedY, color: '#e2e8f0' };
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  game.width = canvas.width;
+  game.height = canvas.height;
+
+  if (!game.ship) return;
+
+  // Bei Resize das Schiff im sichtbaren Bereich halten.
+  game.ship.x = Math.min(game.ship.x, game.width);
+  game.ship.y = Math.min(game.ship.y, game.height);
 }
 
-function buildLevel(levelIndex) {
-  const pattern = LEVELS[levelIndex];
-  const rows = pattern.length;
-  const cols = pattern[0].length;
-  const topOffset = 85;
-  const sidePadding = 60;
-  const gap = 6;
-  const brickWidth = (WIDTH - sidePadding * 2 - gap * (cols - 1)) / cols;
-  const brickHeight = 22;
+function random(min, max) {
+  return Math.random() * (max - min) + min;
+}
 
-  const bricks = [];
-  for (let r = 0; r < rows; r += 1) {
-    for (let c = 0; c < cols; c += 1) {
-      if (pattern[r][c] === '1') {
-        bricks.push({
-          x: sidePadding + c * (brickWidth + gap),
-          y: topOffset + r * (brickHeight + gap),
-          width: brickWidth,
-          height: brickHeight,
-          alive: true,
-          color: `hsl(${(r * 45 + c * 12) % 360} 85% 58%)`
-        });
+function wrapPosition(entity) {
+  if (entity.x < 0) entity.x += game.width;
+  if (entity.x > game.width) entity.x -= game.width;
+  if (entity.y < 0) entity.y += game.height;
+  if (entity.y > game.height) entity.y -= game.height;
+}
+
+function spawnStars(count = 140) {
+  game.stars = [];
+  for (let i = 0; i < count; i += 1) {
+    game.stars.push({
+      x: Math.random() * game.width,
+      y: Math.random() * game.height,
+      radius: random(0.6, 2.2),
+      alpha: random(0.2, 0.9),
+      twinkle: random(0.005, 0.02),
+    });
+  }
+}
+
+function createShip() {
+  return {
+    x: game.width / 2,
+    y: game.height / 2,
+    angle: -Math.PI / 2,
+    radius: 14,
+    vx: 0,
+    vy: 0,
+    rotationSpeed: 0.07,
+    thrustPower: 0.14,
+    friction: 0.992,
+  };
+}
+
+function createAsteroid(size, x = null, y = null) {
+  const radiusBySize = {
+    3: random(44, 58),
+    2: random(26, 36),
+    1: random(14, 20),
+  };
+
+  let spawnX = x;
+  let spawnY = y;
+
+  // Neue Asteroiden starten zufällig am Rand.
+  if (spawnX === null || spawnY === null) {
+    const edge = Math.floor(Math.random() * 4);
+    if (edge === 0) {
+      spawnX = 0;
+      spawnY = random(0, game.height);
+    } else if (edge === 1) {
+      spawnX = game.width;
+      spawnY = random(0, game.height);
+    } else if (edge === 2) {
+      spawnX = random(0, game.width);
+      spawnY = 0;
+    } else {
+      spawnX = random(0, game.width);
+      spawnY = game.height;
+    }
+  }
+
+  const speed = random(0.6, 1.8) + (3 - size) * 0.4;
+  const dir = random(0, Math.PI * 2);
+
+  return {
+    x: spawnX,
+    y: spawnY,
+    vx: Math.cos(dir) * speed,
+    vy: Math.sin(dir) * speed,
+    angle: random(0, Math.PI * 2),
+    spin: random(-0.03, 0.03),
+    size,
+    radius: radiusBySize[size],
+    // Kleine Unregelmäßigkeiten lassen den Stein „natürlicher“ aussehen.
+    points: Array.from({ length: 12 }, () => random(0.8, 1.25)),
+  };
+}
+
+function spawnWave(baseCount = 4) {
+  const extra = Math.min(5, Math.floor(game.score / 1400));
+  const count = baseCount + extra;
+  for (let i = 0; i < count; i += 1) {
+    game.asteroids.push(createAsteroid(3));
+  }
+}
+
+function resetGame() {
+  game.score = 0;
+  game.lives = 3;
+  game.isGameOver = false;
+  game.lastShotAt = 0;
+  game.invulnerableUntil = 0;
+  game.ship = createShip();
+  game.asteroids = [];
+  game.lasers = [];
+  spawnWave();
+  updateHud();
+}
+
+function updateHud() {
+  scoreEl.textContent = String(game.score);
+  livesEl.textContent = String(game.lives);
+}
+
+function distanceSquared(a, b) {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return dx * dx + dy * dy;
+}
+
+function splitAsteroid(asteroid) {
+  if (asteroid.size <= 1) return;
+
+  const nextSize = asteroid.size - 1;
+  game.asteroids.push(createAsteroid(nextSize, asteroid.x, asteroid.y));
+  game.asteroids.push(createAsteroid(nextSize, asteroid.x, asteroid.y));
+}
+
+function shootLaser(now) {
+  // Kleiner Cooldown, damit Schüsse kontrollierbar bleiben.
+  if (now - game.lastShotAt < 160 || game.isGameOver) return;
+  game.lastShotAt = now;
+
+  const ship = game.ship;
+  const speed = 8;
+  game.lasers.push({
+    x: ship.x + Math.cos(ship.angle) * ship.radius,
+    y: ship.y + Math.sin(ship.angle) * ship.radius,
+    vx: Math.cos(ship.angle) * speed + ship.vx * 0.4,
+    vy: Math.sin(ship.angle) * speed + ship.vy * 0.4,
+    life: 70,
+    radius: 2,
+  });
+}
+
+function updateShip(now) {
+  const ship = game.ship;
+
+  if (game.keys.left) ship.angle -= ship.rotationSpeed;
+  if (game.keys.right) ship.angle += ship.rotationSpeed;
+
+  if (game.keys.thrust) {
+    ship.vx += Math.cos(ship.angle) * ship.thrustPower;
+    ship.vy += Math.sin(ship.angle) * ship.thrustPower;
+  }
+
+  ship.vx *= ship.friction;
+  ship.vy *= ship.friction;
+  ship.x += ship.vx;
+  ship.y += ship.vy;
+
+  wrapPosition(ship);
+
+  if (game.keys.shoot) {
+    shootLaser(now);
+  }
+}
+
+function updateLasers() {
+  game.lasers = game.lasers.filter((laser) => {
+    laser.x += laser.vx;
+    laser.y += laser.vy;
+    wrapPosition(laser);
+    laser.life -= 1;
+    return laser.life > 0;
+  });
+}
+
+function updateAsteroids() {
+  game.asteroids.forEach((asteroid) => {
+    asteroid.x += asteroid.vx;
+    asteroid.y += asteroid.vy;
+    asteroid.angle += asteroid.spin;
+    wrapPosition(asteroid);
+  });
+
+  if (!game.isGameOver && game.asteroids.length === 0) {
+    spawnWave(5);
+  }
+}
+
+function handleLaserHits() {
+  const removedAsteroids = new Set();
+  const removedLasers = new Set();
+
+  game.lasers.forEach((laser, laserIndex) => {
+    game.asteroids.forEach((asteroid, asteroidIndex) => {
+      if (removedAsteroids.has(asteroidIndex) || removedLasers.has(laserIndex)) return;
+
+      const hitDistance = asteroid.radius + laser.radius;
+      if (distanceSquared(laser, asteroid) <= hitDistance * hitDistance) {
+        removedAsteroids.add(asteroidIndex);
+        removedLasers.add(laserIndex);
+
+        splitAsteroid(asteroid);
+        game.score += asteroid.size === 3 ? 20 : asteroid.size === 2 ? 50 : 100;
       }
-    }
-  }
-  state.bricks = bricks;
-}
-
-function resetForLevel() {
-  buildLevel(state.levelIndex);
-  state.paddle.width = state.paddle.baseWidth;
-  state.paddle.x = WIDTH / 2 - state.paddle.width / 2;
-  state.paddleBoostTimer = 0;
-  state.powerUps = [];
-  state.balls = [createBall(WIDTH / 2, HEIGHT - 80, 3.2 + state.levelIndex * 0.75, -4.8 - state.levelIndex * 0.5)];
-  updateHUD();
-}
-
-function updateHUD() {
-  scoreEl.textContent = String(state.score);
-  livesEl.textContent = String(state.lives);
-  levelEl.textContent = String(state.levelIndex + 1);
-}
-
-function setOverlay(title, message, buttonText = 'Weiter') {
-  overlayTitle.textContent = title;
-  overlayMessage.innerHTML = message;
-  overlayBtn.textContent = buttonText;
-  overlay.classList.add('visible');
-}
-
-function hideOverlay() {
-  overlay.classList.remove('visible');
-}
-
-function startNewGame() {
-  state.score = 0;
-  state.lives = 3;
-  state.levelIndex = 0;
-  state.status = 'running';
-  resetForLevel();
-  hideOverlay();
-}
-
-function pauseGame() {
-  if (state.status !== 'running') return;
-  state.status = 'paused';
-  setOverlay('Pausiert', 'Drücke <strong>Leertaste</strong> oder den Button zum Fortsetzen.', 'Fortsetzen');
-}
-
-function resumeGame() {
-  if (!['paused', 'start', 'levelClear', 'gameOver', 'won'].includes(state.status)) return;
-
-  if (state.status === 'start') {
-    startNewGame();
-    return;
-  }
-  if (state.status === 'levelClear') {
-    state.levelIndex += 1;
-    if (state.levelIndex >= LEVELS.length) {
-      state.status = 'won';
-      setOverlay('Gewonnen! 🎉', `Endscore: <strong>${state.score}</strong><br/>Drücke R oder starte neu.`, 'Neues Spiel');
-      return;
-    }
-    resetForLevel();
-  }
-  if (state.status === 'gameOver' || state.status === 'won') {
-    startNewGame();
-    return;
-  }
-
-  state.status = 'running';
-  hideOverlay();
-}
-
-function movePaddle() {
-  if (state.rightPressed) state.paddle.x += state.paddle.speed;
-  if (state.leftPressed) state.paddle.x -= state.paddle.speed;
-  state.paddle.x = Math.max(0, Math.min(WIDTH - state.paddle.width, state.paddle.x));
-}
-
-function spawnPowerUp(x, y) {
-  state.powerUps.push({ x, y, width: 20, height: 20, dy: 2.2, type: 'paddleBoost' });
-}
-
-function updatePowerUps() {
-  state.powerUps.forEach((p) => {
-    p.y += p.dy;
+    });
   });
 
-  state.powerUps = state.powerUps.filter((p) => {
-    const hitsPaddle =
-      p.y + p.height >= HEIGHT - state.paddle.height - 12 &&
-      p.x + p.width >= state.paddle.x &&
-      p.x <= state.paddle.x + state.paddle.width;
-
-    if (hitsPaddle) {
-      state.paddle.width = Math.min(state.paddle.baseWidth * 1.6, state.paddle.width * 1.45);
-      state.paddleBoostTimer = 720;
-      return false;
-    }
-
-    return p.y < HEIGHT + 30;
-  });
-
-  if (state.paddleBoostTimer > 0) {
-    state.paddleBoostTimer -= 1;
-    if (state.paddleBoostTimer === 0) {
-      state.paddle.width = state.paddle.baseWidth;
-    }
-  }
+  game.asteroids = game.asteroids.filter((_, index) => !removedAsteroids.has(index));
+  game.lasers = game.lasers.filter((_, index) => !removedLasers.has(index));
 }
 
-function handleBall(ball) {
-  ball.x += ball.dx;
-  ball.y += ball.dy;
+function handleShipCollisions(now) {
+  if (now < game.invulnerableUntil || game.isGameOver) return;
 
-  if (ball.x + ball.radius > WIDTH || ball.x - ball.radius < 0) ball.dx *= -1;
-  if (ball.y - ball.radius < 0) ball.dy *= -1;
+  const ship = game.ship;
+  for (const asteroid of game.asteroids) {
+    const hitDistance = ship.radius + asteroid.radius * 0.82;
+    if (distanceSquared(ship, asteroid) <= hitDistance * hitDistance) {
+      game.lives -= 1;
+      game.invulnerableUntil = now + 2200;
 
-  const paddleTop = HEIGHT - state.paddle.height - 12;
-  if (
-    ball.y + ball.radius >= paddleTop &&
-    ball.y + ball.radius <= paddleTop + 16 &&
-    ball.x >= state.paddle.x &&
-    ball.x <= state.paddle.x + state.paddle.width
-  ) {
-    const hitPos = (ball.x - (state.paddle.x + state.paddle.width / 2)) / (state.paddle.width / 2);
-    ball.dx = hitPos * 6.2;
-    ball.dy = -Math.abs(ball.dy);
-  }
+      // Schiff nach Treffer kurz neu positionieren.
+      ship.x = game.width / 2;
+      ship.y = game.height / 2;
+      ship.vx = 0;
+      ship.vy = 0;
 
-  for (const brick of state.bricks) {
-    if (!brick.alive) continue;
-    const hit =
-      ball.x + ball.radius > brick.x &&
-      ball.x - ball.radius < brick.x + brick.width &&
-      ball.y + ball.radius > brick.y &&
-      ball.y - ball.radius < brick.y + brick.height;
-
-    if (hit) {
-      brick.alive = false;
-      ball.dy *= -1;
-      state.score += 100;
-      if (Math.random() < 0.16) spawnPowerUp(brick.x + brick.width / 2 - 10, brick.y + brick.height / 2 - 10);
+      if (game.lives <= 0) {
+        game.isGameOver = true;
+      }
+      updateHud();
       break;
     }
   }
 }
 
-function updateBalls() {
-  state.balls.forEach(handleBall);
-  state.balls = state.balls.filter((ball) => ball.y - ball.radius <= HEIGHT + 20);
+function drawStars() {
+  ctx.fillStyle = '#04050d';
+  ctx.fillRect(0, 0, game.width, game.height);
 
-  if (state.balls.length === 0) {
-    state.lives -= 1;
-    if (state.lives <= 0) {
-      state.status = 'gameOver';
-      setOverlay('Game Over', `Du hast keine Leben mehr.<br/>Endscore: <strong>${state.score}</strong>`, 'Neustart');
-    } else {
-      state.balls = [createBall(WIDTH / 2, HEIGHT - 80, 3.5, -5)];
-      state.paddle.x = WIDTH / 2 - state.paddle.width / 2;
+  game.stars.forEach((star) => {
+    star.alpha += star.twinkle;
+    if (star.alpha > 1 || star.alpha < 0.2) {
+      star.twinkle *= -1;
     }
-  }
-}
 
-function checkLevelClear() {
-  const remaining = state.bricks.some((brick) => brick.alive);
-  if (!remaining && state.status === 'running') {
-    state.status = 'levelClear';
-    setOverlay(
-      'Level geschafft! 🚀',
-      `Aktueller Score: <strong>${state.score}</strong><br/>Drücke Leertaste für Level ${state.levelIndex + 2}.`,
-      'Nächstes Level'
-    );
-  }
-}
-
-function drawArenaGlowGrid() {
-  ctx.save();
-  const gridGap = 36;
-  ctx.strokeStyle = '#22d3ee1a';
-  ctx.lineWidth = 1;
-  for (let x = 0; x <= WIDTH; x += gridGap) {
+    ctx.fillStyle = `rgba(173, 216, 255, ${star.alpha})`;
     ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, HEIGHT);
-    ctx.stroke();
-  }
-  for (let y = 0; y <= HEIGHT; y += gridGap) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(WIDTH, y);
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
-function drawPaddle() {
-  const y = HEIGHT - state.paddle.height - 12;
-  ctx.save();
-  const glow = state.paddleBoostTimer > 0 ? '#34d399' : '#38bdf8';
-  ctx.shadowColor = glow;
-  ctx.shadowBlur = 16;
-  ctx.fillStyle = glow;
-  ctx.fillRect(state.paddle.x, y, state.paddle.width, state.paddle.height);
-  ctx.restore();
-}
-
-function drawBalls() {
-  state.balls.forEach((ball) => {
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
-    ctx.shadowColor = '#67e8f9';
-    ctx.shadowBlur = 20;
-    ctx.fillStyle = ball.color;
+    ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
     ctx.fill();
-    ctx.closePath();
-    ctx.restore();
   });
 }
 
-function drawBricks() {
-  const pulse = 10 + Math.sin(state.frame * 0.06) * 5;
-  state.bricks.forEach((brick) => {
-    if (!brick.alive) return;
-    ctx.save();
-    ctx.shadowColor = brick.color;
-    ctx.shadowBlur = pulse;
-    ctx.fillStyle = brick.color;
-    ctx.fillRect(brick.x, brick.y, brick.width, brick.height);
-    ctx.restore();
+function drawShip(now) {
+  const ship = game.ship;
+  const blink = now < game.invulnerableUntil && Math.floor(now / 120) % 2 === 0;
+  if (blink) return;
+
+  ctx.save();
+  ctx.translate(ship.x, ship.y);
+  ctx.rotate(ship.angle);
+
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(16, 0);
+  ctx.lineTo(-12, -10);
+  ctx.lineTo(-8, 0);
+  ctx.lineTo(-12, 10);
+  ctx.closePath();
+  ctx.stroke();
+
+  // Schubflamme nur zeigen, wenn der Spieler wirklich Schub gibt.
+  if (game.keys.thrust && !game.isGameOver) {
+    ctx.strokeStyle = '#f59e0b';
+    ctx.beginPath();
+    ctx.moveTo(-10, -6);
+    ctx.lineTo(-18 - random(0, 7), 0);
+    ctx.lineTo(-10, 6);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+function drawAsteroid(asteroid) {
+  ctx.save();
+  ctx.translate(asteroid.x, asteroid.y);
+  ctx.rotate(asteroid.angle);
+
+  ctx.strokeStyle = '#9ca3af';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+
+  for (let i = 0; i < asteroid.points.length; i += 1) {
+    const angle = (Math.PI * 2 * i) / asteroid.points.length;
+    const radius = asteroid.radius * asteroid.points[i];
+    const x = Math.cos(angle) * radius;
+    const y = Math.sin(angle) * radius;
+
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawLasers() {
+  ctx.fillStyle = '#38bdf8';
+  game.lasers.forEach((laser) => {
+    ctx.beginPath();
+    ctx.arc(laser.x, laser.y, laser.radius, 0, Math.PI * 2);
+    ctx.fill();
   });
 }
 
-function drawPowerUps() {
-  state.powerUps.forEach((p) => {
-    ctx.save();
-    ctx.shadowColor = '#fde047';
-    ctx.shadowBlur = 16;
-    ctx.fillStyle = '#fde047';
-    ctx.fillRect(p.x, p.y, p.width, p.height);
-    ctx.fillStyle = '#111827';
-    ctx.font = 'bold 13px sans-serif';
-    ctx.fillText('+', p.x + 6, p.y + 15);
-    ctx.restore();
-  });
+function drawGameOver() {
+  if (!game.isGameOver) return;
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  ctx.fillRect(0, 0, game.width, game.height);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = '700 56px Inter, sans-serif';
+  ctx.fillText('GAME OVER', game.width / 2, game.height / 2 - 20);
+
+  ctx.font = '500 24px Inter, sans-serif';
+  ctx.fillText('Drücke R für Neustart', game.width / 2, game.height / 2 + 28);
 }
 
-function drawBackgroundHints() {
-  if (state.status !== 'running') return;
-  ctx.fillStyle = '#93c5fd';
-  ctx.font = '14px sans-serif';
-  ctx.fillText('Space = Pause  |  R = Restart', 20, HEIGHT - 18);
-}
+function gameLoop(now) {
+  drawStars();
 
-function update() {
-  if (state.status !== 'running') return;
-  state.frame += 1;
-  movePaddle();
-  updateBalls();
-  updatePowerUps();
-  checkLevelClear();
-  updateHUD();
-}
+  if (!game.isGameOver) {
+    updateShip(now);
+    updateLasers();
+    updateAsteroids();
+    handleLaserHits();
+    handleShipCollisions(now);
+    updateHud();
+  }
 
-function draw() {
-  ctx.clearRect(0, 0, WIDTH, HEIGHT);
-  drawArenaGlowGrid();
-  drawBricks();
-  drawPaddle();
-  drawBalls();
-  drawPowerUps();
-  drawBackgroundHints();
-}
+  game.asteroids.forEach(drawAsteroid);
+  drawLasers();
+  drawShip(now);
+  drawGameOver();
 
-function gameLoop() {
-  update();
-  draw();
   requestAnimationFrame(gameLoop);
 }
 
-window.addEventListener('keydown', (e) => {
-  if (e.key === 'Right' || e.key === 'ArrowRight') state.rightPressed = true;
-  if (e.key === 'Left' || e.key === 'ArrowLeft') state.leftPressed = true;
+function handleKey(isPressed, code) {
+  if (code === 'ArrowLeft') game.keys.left = isPressed;
+  if (code === 'ArrowRight') game.keys.right = isPressed;
+  if (code === 'ArrowUp') game.keys.thrust = isPressed;
+  if (code === 'Space') game.keys.shoot = isPressed;
+}
 
-  if (e.code === 'Space') {
-    e.preventDefault();
-    if (state.status === 'running') pauseGame();
-    else resumeGame();
+window.addEventListener('keydown', (event) => {
+  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'Space', 'KeyR'].includes(event.code)) {
+    event.preventDefault();
   }
 
-  if (e.key.toLowerCase() === 'r') startNewGame();
+  if (event.code === 'KeyR') {
+    resetGame();
+    return;
+  }
+
+  handleKey(true, event.code);
 });
 
-window.addEventListener('keyup', (e) => {
-  if (e.key === 'Right' || e.key === 'ArrowRight') state.rightPressed = false;
-  if (e.key === 'Left' || e.key === 'ArrowLeft') state.leftPressed = false;
+window.addEventListener('keyup', (event) => {
+  handleKey(false, event.code);
 });
 
-window.addEventListener('mousemove', (e) => {
-  const rect = canvas.getBoundingClientRect();
-  const relativeX = e.clientX - rect.left;
-  const scaledX = (relativeX / rect.width) * WIDTH;
-  state.paddle.x = scaledX - state.paddle.width / 2;
-  state.paddle.x = Math.max(0, Math.min(WIDTH - state.paddle.width, state.paddle.x));
+window.addEventListener('resize', () => {
+  resizeCanvas();
+  spawnStars();
 });
 
-overlayBtn.addEventListener('click', () => {
-  if (state.status === 'running') pauseGame();
-  else resumeGame();
-});
-
-setOverlay(
-  'Breakout Deluxe',
-  'Drücke <strong>Leertaste</strong> oder den Button, um zu starten.<br/>Schlage den Ball mit dem Paddle und räume alle 3 Level.',
-  'Spiel starten'
-);
-updateHUD();
-resetForLevel();
+resizeCanvas();
+spawnStars();
+resetGame();
 requestAnimationFrame(gameLoop);

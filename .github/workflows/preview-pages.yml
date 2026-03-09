@@ -2,10 +2,11 @@ name: Preview Pages
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
   push:
-    branches:
-      - main
-
+    branches: [main]
+    
 permissions:
   pull-requests: write
   contents: write

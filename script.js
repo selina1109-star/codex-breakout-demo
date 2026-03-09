@@ -11,6 +11,7 @@ const game = {
   score: 0,
   lives: 3,
   isGameOver: false,
+  isPaused: false,
   keys: {
     left: false,
     right: false,
@@ -135,6 +136,7 @@ function resetGame() {
   game.score = 0;
   game.lives = 3;
   game.isGameOver = false;
+  game.isPaused = false;
   game.lastShotAt = 0;
   game.invulnerableUntil = 0;
   game.ship = createShip();
@@ -147,6 +149,21 @@ function resetGame() {
 function updateHud() {
   scoreEl.textContent = String(game.score);
   livesEl.textContent = String(game.lives);
+}
+
+function setControlsActive(isActive) {
+  game.keys.left = isActive ? game.keys.left : false;
+  game.keys.right = isActive ? game.keys.right : false;
+  game.keys.thrust = isActive ? game.keys.thrust : false;
+  game.keys.shoot = isActive ? game.keys.shoot : false;
+}
+
+function togglePause() {
+  if (game.isGameOver) return;
+  game.isPaused = !game.isPaused;
+  if (game.isPaused) {
+    setControlsActive(false);
+  }
 }
 
 function distanceSquared(a, b) {
@@ -375,10 +392,25 @@ function drawGameOver() {
   ctx.fillText('Drücke R für Neustart', game.width / 2, game.height / 2 + 28);
 }
 
+function drawPauseOverlay() {
+  if (!game.isPaused || game.isGameOver) return;
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.fillRect(0, 0, game.width, game.height);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = '700 52px Inter, sans-serif';
+  ctx.fillText('PAUSE', game.width / 2, game.height / 2 - 10);
+
+  ctx.font = '500 22px Inter, sans-serif';
+  ctx.fillText('Drücke P zum Fortsetzen', game.width / 2, game.height / 2 + 30);
+}
+
 function gameLoop(now) {
   drawStars();
 
-  if (!game.isGameOver) {
+  if (!game.isGameOver && !game.isPaused) {
     updateShip(now);
     updateLasers();
     updateAsteroids();
@@ -390,6 +422,7 @@ function gameLoop(now) {
   game.asteroids.forEach(drawAsteroid);
   drawLasers();
   drawShip(now);
+  drawPauseOverlay();
   drawGameOver();
 
   requestAnimationFrame(gameLoop);
@@ -399,16 +432,21 @@ function handleKey(isPressed, code) {
   if (code === 'ArrowLeft') game.keys.left = isPressed;
   if (code === 'ArrowRight') game.keys.right = isPressed;
   if (code === 'ArrowUp') game.keys.thrust = isPressed;
-  if (code === 'Space') game.keys.shoot = isPressed;
+  if (code === 'Space') game.keys.shoot = isPressed && !game.isPaused;
 }
 
 window.addEventListener('keydown', (event) => {
-  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'Space', 'KeyR'].includes(event.code)) {
+  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'Space', 'KeyR', 'KeyP'].includes(event.code)) {
     event.preventDefault();
   }
 
   if (event.code === 'KeyR') {
     resetGame();
+    return;
+  }
+
+  if (event.code === 'KeyP') {
+    togglePause();
     return;
   }
 

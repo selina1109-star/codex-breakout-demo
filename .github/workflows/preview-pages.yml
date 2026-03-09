@@ -4,25 +4,35 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch/Tag/Commit to preview (e.g. codex/..., main)"
+        required: true
+        default: "main"
   push:
     branches: [main]
-    
+
 permissions:
-  pull-requests: write
   contents: write
+  pull-requests: write
 
 concurrency:
   group: preview-pages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  run:
+  preview:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          # If manually started, use the entered ref.
+          # If PR, preview the PR head commit.
+          # Otherwise (push), use the current commit.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref || (github.event.pull_request && github.event.pull_request.head.sha) || github.sha }}
 
-      - name: Preview Pages
+      - name: Deploy Preview
         uses: rajyan/preview-pages@v1
         with:
-          source-dir: .
+          source-dir: .nmn

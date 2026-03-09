@@ -73,6 +73,8 @@ function createShip() {
     rotationSpeed: 0.07,
     thrustPower: 0.14,
     friction: 0.992,
+    coastFriction: 0.965,
+    stopThreshold: 0.04,
   };
 }
 
@@ -189,8 +191,12 @@ function updateShip(now) {
     ship.vy += Math.sin(ship.angle) * ship.thrustPower;
   }
 
-  ship.vx *= ship.friction;
-  ship.vy *= ship.friction;
+  const damping = game.keys.thrust ? ship.friction : ship.coastFriction;
+  ship.vx *= damping;
+  ship.vy *= damping;
+
+  if (Math.abs(ship.vx) < ship.stopThreshold) ship.vx = 0;
+  if (Math.abs(ship.vy) < ship.stopThreshold) ship.vy = 0;
   ship.x += ship.vx;
   ship.y += ship.vy;
 

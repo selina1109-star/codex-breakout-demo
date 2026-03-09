@@ -3,37 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Breakout Deluxe</title>
+    <title>Asteroids Arcade</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <main class="app">
-      <header class="hud">
-        <div>Score: <span id="score">0</span></div>
-        <div>Lives: <span id="lives">3</span></div>
-        <div>Level: <span id="level">1</span></div>
-      </header>
+    <div class="hud">
+      <span>Score: <strong id="score">0</strong></span>
+      <span>Lives: <strong id="lives">3</strong></span>
+      <span class="controls">Steuerung: ← → drehen · ↑ Schub · Space schießen · R Neustart</span>
+    </div>
 
-      <section class="game-wrap">
-        <canvas id="gameCanvas" width="900" height="600" aria-label="Breakout Deluxe Spielfeld"></canvas>
+    <canvas id="gameCanvas" aria-label="Asteroids Arcade Spielfeld"></canvas>
 
-        <div id="overlay" class="overlay visible">
-          <div class="panel">
-            <h1 id="overlayTitle">Breakout Deluxe</h1>
-            <p id="overlayMessage">
-              Zerstöre alle Steine in 3 Leveln. Nutze die Maus oder Pfeiltasten.
-              <br />
-              <strong>Power-Up:</strong> Paddle-Boost vergrößert dein Paddle für kurze Zeit.
-            </p>
-            <p class="controls">
-              <kbd>Leertaste</kbd> Start / Pause · <kbd>R</kbd> Neustart
-            </p>
-            <button id="overlayBtn" type="button">Spiel starten</button>
-          </div>
-        </div>
-      </section>
-    </main>
-
-    <script src="game.js"></script>
+    <script src="script.js"></script>
   </body>
 </html>
